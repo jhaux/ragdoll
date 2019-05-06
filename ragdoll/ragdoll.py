@@ -46,7 +46,7 @@ def add_callback(callback):
 
 
 class Main(Frame):
-    def __init__(self, root):
+    def __init__(self, root, callbacks=[]):
         super().__init__()
 
         self.root = root
@@ -58,16 +58,21 @@ class Main(Frame):
         self.load_default_kps()
         self.selection = []
 
+        self.callbacks = callbacks
+
         # this data is used to keep track of an 
         # item being dragged
         self._drag_data = {"x": 0, "y": 0, "item": None}
 
         # add bindings for clicking, dragging and releasing over
         # any object with the "token" tag
-        self.on_token_release = add_callback(self.print_kps)(self.on_token_release)
+        # self.on_token_release = add_callback(self.print_kps)(self.on_token_release)
         self.canvas.tag_bind("token", "<ButtonPress-1>", self.on_token_press)
         self.canvas.tag_bind("token", "<ButtonRelease-1>", self.on_token_release)
         self.canvas.tag_bind("token", "<B1-Motion>", self.on_token_motion)
+        self.root.bind("<KeyPress-Shift_L>", self.set_shift)
+        self.root.bind("<KeyRelease-Shift_L>", self.unset_shift)
+        self.shift_is_not_pressed = True
 
         self.bbox_select = rect = RectTracker(self.canvas)
         self.rotator = Rotator(self.canvas, self.get_selection, [self.bbox_select])
@@ -76,9 +81,14 @@ class Main(Frame):
         def onDrag(start, end):
             self.rotator.active = False
             items = rect.hit_test(start, end, tags=['token'], ignoretags=['bbox'])
-            self.selection = items
+
+            if self.shift_is_not_pressed:
+                self.selection = items
+            else:
+                self.selection += items
+                self.selection = list(set(self.selection))
             for item in rect.items:
-                if item not in items:
+                if item not in self.selection:
                     self.canvas.itemconfig(item, outline='black', width=1, dash=[1])
                 else:
                     self.canvas.itemconfig(item, outline='blue', width=2, dash=[2, 3])
@@ -89,6 +99,18 @@ class Main(Frame):
         self.bbox_select.autodraw(fill="", width=2, command=onDrag, release=onRelease)
 
         root.bind("<Motion>", self.cursor)
+
+        self._com_interval = 5000
+        root.after(self._com_interval, self.communicate)
+
+    def set_shift(self, event):
+        self.shift_is_not_pressed = didit = False
+        if not didit:
+            print('Shift')
+
+    def unset_shift(self, event):
+        self.shift_is_not_pressed = True
+        print('unset shift')
 
     def cursor(self, event):
         if self.rotator.active:
@@ -132,8 +154,10 @@ class Main(Frame):
         self._drag_data["x"] = event.x
         self._drag_data["y"] = event.y
 
-    def print_kps(self):
-        print(self.get_kp_positions())
+    def communicate(self):
+        for cb in self.callbacks:
+            cb(self.get_kp_positions())
+        self.root.after(self._com_interval, self.communicate)
 
     def on_token_release(self, event):
         '''End drag of an object'''
@@ -217,7 +241,7 @@ def rgb2hex(r, g, b):
 def main():
 
     root = Tk()
-    ex = Main(root)
+    ex = Main(root, [print])
     root.geometry("500x500+0+0")
     root.mainloop()
 
