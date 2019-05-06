@@ -2,6 +2,8 @@ import numpy as np
 import math
 from tkinter import Tk, Label, Button, Canvas, Frame, BOTH
 
+from PIL import Image, ImageTk
+
 from BboxSelect import RectTracker
 from Rotator import Rotator
 
@@ -46,19 +48,24 @@ def add_callback(callback):
 
 
 class Main(Frame):
-    def __init__(self, root, callbacks=[]):
+    def __init__(self, root, callbacks=[], image_callback=None):
         super().__init__()
 
         self.root = root
 
         self.pack(fill=BOTH, expand=1)
         self.canvas = Canvas(self)
-        self.canvas.pack(fill=BOTH, expand=1)
+        self.canvas.pack(side='right', fill='x', expand='no')
+
+        img = ImageTk.PhotoImage(Image.fromarray(dummy_get_im(None)))
+        self.image_label = Label(self, image=img)
+        self.image_label.pack(side="right", fill="both", expand="no")
 
         self.load_default_kps()
         self.selection = []
 
         self.callbacks = callbacks
+        self.get_image = image_callback
 
         # this data is used to keep track of an 
         # item being dragged
@@ -100,8 +107,11 @@ class Main(Frame):
 
         root.bind("<Motion>", self.cursor)
 
-        self._com_interval = 5000
+        self._com_interval = 250
         root.after(self._com_interval, self.communicate)
+
+        if image_callback is not None:
+            root.after(self._com_interval, self.draw_image)
 
     def set_shift(self, event):
         self.shift_is_not_pressed = didit = False
@@ -159,6 +169,14 @@ class Main(Frame):
             cb(self.get_kp_positions())
         self.root.after(self._com_interval, self.communicate)
 
+    def draw_image(self):
+        new_im = self.get_image(self.get_kp_positions())
+        new_im = ImageTk.PhotoImage(Image.fromarray(new_im))
+        self.image_label.configure(image=new_im)
+        self.image_label.image = new_im
+
+        self.root.after(self._com_interval, self.draw_image)
+
     def on_token_release(self, event):
         '''End drag of an object'''
         # reset the drag information
@@ -210,6 +228,7 @@ def hsv2rgb(h, s, v):
     r, g, b = int(r * 255), int(g * 255), int(b * 255)
     return r, g, b
     
+
 def rgb2hsv(r, g, b):
     r, g, b = r/255.0, g/255.0, b/255.0
     mx = max(r, g, b)
@@ -230,18 +249,23 @@ def rgb2hsv(r, g, b):
     v = mx
     return h, s, v
 
+
 def clamp(x): 
       return max(0, min(x, 255))
+
 
 def rgb2hex(r, g, b):
   return "#{0:02x}{1:02x}{2:02x}".format(clamp(r), clamp(g), clamp(b))
 
 
+def dummy_get_im(keypoints):
+    return np.array(255 * np.ones([255, 255, 3]) * np.random.uniform(0, 1), dtype=np.uint8)
+
 
 def main():
 
     root = Tk()
-    ex = Main(root, [print])
+    ex = Main(root, [print], dummy_get_im)
     root.geometry("500x500+0+0")
     root.mainloop()
 
