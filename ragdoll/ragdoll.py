@@ -1,6 +1,9 @@
 import numpy as np
-
+import math
 from tkinter import Tk, Label, Button, Canvas, Frame, BOTH
+
+from BboxSelect import RectTracker
+from Rotator import Rotator
 
 
 STANDART_KPS = np.array(
@@ -31,15 +34,29 @@ STANDART_KPS = np.array(
       [97.95422632,  219.9003304]]
 )
 
+
+def add_callback(callback):
+    def wrapper(method):
+        def wrapped(*args, **kwargs):
+            values = method(*args, **kwargs)
+            callback()
+            return values
+        return wrapped
+    return wrapper
+
+
 class Main(Frame):
-    def __init__(self):
+    def __init__(self, root):
         super().__init__()
+
+        self.root = root
 
         self.pack(fill=BOTH, expand=1)
         self.canvas = Canvas(self)
         self.canvas.pack(fill=BOTH, expand=1)
 
         self.load_default_kps()
+        self.selection = []
 
         # this data is used to keep track of an 
         # item being dragged
@@ -47,9 +64,41 @@ class Main(Frame):
 
         # add bindings for clicking, dragging and releasing over
         # any object with the "token" tag
+        self.on_token_release = add_callback(self.print_kps)(self.on_token_release)
         self.canvas.tag_bind("token", "<ButtonPress-1>", self.on_token_press)
         self.canvas.tag_bind("token", "<ButtonRelease-1>", self.on_token_release)
         self.canvas.tag_bind("token", "<B1-Motion>", self.on_token_motion)
+
+        self.bbox_select = rect = RectTracker(self.canvas)
+        self.rotator = Rotator(self.canvas, self.get_selection, [self.bbox_select])
+
+        # command
+        def onDrag(start, end):
+            self.rotator.active = False
+            items = rect.hit_test(start, end, tags=['token'], ignoretags=['bbox'])
+            self.selection = items
+            for item in rect.items:
+                if item not in items:
+                    self.canvas.itemconfig(item, outline='black', width=1, dash=[1])
+                else:
+                    self.canvas.itemconfig(item, outline='blue', width=2, dash=[2, 3])
+
+        def onRelease():
+            self.rotator.active = True
+        
+        self.bbox_select.autodraw(fill="", width=2, command=onDrag, release=onRelease)
+
+        root.bind("<Motion>", self.cursor)
+
+    def cursor(self, event):
+        if self.rotator.active:
+            if self.rotator.event_inside_rotate_radius(event):
+                self.canvas.config(cursor='box_spiral')
+            else:
+                self.canvas.config(cursor='')
+
+    def get_selection(self):
+        return self.selection
 
     def get_kp_positions(self):
         coords = np.array([self.canvas.coords(o) for o in self.ovals])
@@ -71,42 +120,50 @@ class Main(Frame):
 
         self.bbox = self.canvas.create_rectangle(0, 0,
                                                  255, 255,
-                                                 tags='token',
+                                                 tags=['token', 'bbox'],
                                                  outline=None, width=3)
 
     def on_token_press(self, event):
         '''Begining drag of an object'''
         # record the item and its location
+        self.bbox_select.active = False
+        self.rotator.active = False
         self._drag_data["item"] = self.canvas.find_closest(event.x, event.y)[0]
         self._drag_data["x"] = event.x
         self._drag_data["y"] = event.y
 
+    def print_kps(self):
+        print(self.get_kp_positions())
+
     def on_token_release(self, event):
         '''End drag of an object'''
         # reset the drag information
+        self.bbox_select.active = True
+        self.rotator.active = True
         self._drag_data["item"] = None
         self._drag_data["x"] = 0
         self._drag_data["y"] = 0
-
-        print(self.get_kp_positions())
 
     def on_token_motion(self, event):
         '''Handle dragging of an object'''
         # compute how much the mouse has moved
         delta_x = event.x - self._drag_data["x"]
         delta_y = event.y - self._drag_data["y"]
-        # move the object the appropriate amount
-        self.canvas.move(self._drag_data["item"], delta_x, delta_y)
 
-        if self._drag_data['item'] == self.bbox:
+        if self.selection is None or len(self.selection) == 0:
+            # move the object the appropriate amount
+            self.canvas.move(self._drag_data["item"], delta_x, delta_y)
+        elif self._drag_data['item'] == self.bbox:
             for o in self.ovals:
                 self.canvas.move(o, delta_x, delta_y)
+            self.canvas.move(self.bbox, delta_x, delta_y)
+        else:
+            for s in self.selection:
+                self.canvas.move(s, delta_x, delta_y)
         # record the new position
         self._drag_data["x"] = event.x
         self._drag_data["y"] = event.y
 
-
-import math
 
 def hsv2rgb(h, s, v):
     h = float(h)
@@ -156,10 +213,11 @@ def rgb2hex(r, g, b):
   return "#{0:02x}{1:02x}{2:02x}".format(clamp(r), clamp(g), clamp(b))
 
 
+
 def main():
 
     root = Tk()
-    ex = Main()
+    ex = Main(root)
     root.geometry("500x500+0+0")
     root.mainloop()
 
